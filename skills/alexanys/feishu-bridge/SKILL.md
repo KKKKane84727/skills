@@ -14,7 +14,8 @@ Feishu user → Feishu cloud ←WS→ bridge.mjs (local) ←WS→ Clawdbot Gatew
 ```
 
 - Feishu SDK connects outbound (no inbound port / public IP needed)
-- Bridge authenticates to Gateway using the existing gateway token
+- Bridge authenticates to Gateway with a persistent device identity
+- First connect can use the existing gateway token; subsequent connects prefer the cached Gateway `deviceToken`
 - Each Feishu chat maps to a Clawdbot session (`feishu:<chatId>`)
 
 ## Setup
@@ -39,6 +40,10 @@ chmod 600 ~/.clawdbot/secrets/feishu_app_secret
 
 ```bash
 cd <skill-dir>/feishu-bridge
+# If your OpenClaw runtime uses a workspace-specific state/config dir, export it first
+export OPENCLAW_STATE_DIR=/path/to/openclaw-state
+export OPENCLAW_CONFIG_PATH=/path/to/openclaw-state/openclaw.json
+export CLAWDBOT_CONFIG_PATH=/path/to/openclaw-state/openclaw.json
 npm install
 FEISHU_APP_ID=cli_xxx node bridge.mjs
 ```
@@ -59,6 +64,12 @@ launchctl list | grep feishu
 # Logs
 tail -f ~/.clawdbot/logs/feishu-bridge.err.log
 
+# Reset cached Gateway device token (default OpenClaw state dir)
+rm -f ~/.openclaw/identity/feishu-bridge-device-auth.json
+
+# Reset cached Gateway device token (legacy Clawdbot state dir)
+rm -f ~/.clawdbot/identity/feishu-bridge-device-auth.json
+
 # Stop
 launchctl unload ~/Library/LaunchAgents/com.clawdbot.feishu-bridge.plist
 ```
@@ -69,10 +80,12 @@ Bridge replies only when: user @-mentions the bot, message ends with `?`/`？`, 
 
 ## Environment variables
 
-| Variable | Required | Default |
-|---|---|---|
-| `FEISHU_APP_ID` | ✅ | — |
-| `FEISHU_APP_SECRET_PATH` | — | `~/.clawdbot/secrets/feishu_app_secret` |
-| `CLAWDBOT_CONFIG_PATH` | — | `~/.clawdbot/clawdbot.json` |
-| `CLAWDBOT_AGENT_ID` | — | `main` |
-| `FEISHU_THINKING_THRESHOLD_MS` | — | `2500` |
+| Variable                       | Required | Default                                 |
+| ------------------------------ | -------- | --------------------------------------- |
+| `FEISHU_APP_ID`                | ✅       | —                                       |
+| `FEISHU_APP_SECRET_PATH`       | —        | `~/.clawdbot/secrets/feishu_app_secret` |
+| `CLAWDBOT_CONFIG_PATH`         | —        | `~/.clawdbot/clawdbot.json`             |
+| `CLAWDBOT_AGENT_ID`            | —        | `main`                                  |
+| `FEISHU_THINKING_THRESHOLD_MS` | —        | `2500`                                  |
+
+Changing `CLAWDBOT_AGENT_ID` automatically shifts the bridge onto a new agent-scoped Feishu session key, so it does not collide with an older `main` session.

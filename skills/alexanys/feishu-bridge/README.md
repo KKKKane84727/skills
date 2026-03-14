@@ -23,10 +23,13 @@
    - 就像微信一样，你的客户端主动连上去，消息就推过来了
 
 3. **Clawdbot**：桥接脚本收到飞书消息后，通过本地 WebSocket 转发给 Clawdbot Gateway。Clawdbot 调用 AI 模型生成回复，桥接脚本再把回复发回飞书。
+   - 桥接器现在会为 Gateway 生成一个本地持久化的 device identity，并缓存 Gateway 下发的 `deviceToken`
+   - 第一次连接仍可使用 `gateway.auth.token`，后续会优先走 `deviceToken`，兼容新版 Gateway 的 scope / pairing 安全策略
 
 ### 保活机制
 
 脚本通过 macOS 的 **launchd**（系统服务管理器）运行：
+
 - 开机自动启动
 - 崩溃自动重启
 - 日志自动写入文件
@@ -93,7 +96,13 @@ FEISHU_APP_ID=cli_xxxxxxxxx node bridge.mjs
 ### 第五步：设置开机自启（可选但推荐）
 
 ```bash
-# 生成 launchd 服务配置（自动检测路径）
+# 如果你在 workspace 里用了自定义 OpenClaw 配置/状态目录，先导出这些环境变量
+export OPENCLAW_STATE_DIR=/path/to/openclaw-state
+export OPENCLAW_CONFIG_PATH=/path/to/openclaw-state/openclaw.json
+export CLAWDBOT_CONFIG_PATH=/path/to/openclaw-state/openclaw.json
+export CLAWDBOT_AGENT_ID=main
+
+# 生成 launchd 服务配置（会继承上面的路径）
 node setup-service.mjs
 
 # 加载服务
@@ -104,6 +113,8 @@ launchctl list | grep feishu
 ```
 
 之后电脑重启也会自动连上。
+
+如果你把 `CLAWDBOT_AGENT_ID` 从 `main` 切到别的 agent，bridge 现在会自动切到新的 agent-scoped session key，不会再复用旧 agent 的飞书会话。
 
 ---
 
@@ -125,6 +136,7 @@ feishu-bridge/
 ### 群聊行为
 
 在群聊中，桥接器默认"低打扰"模式——只在以下情况回复：
+
 - 被 @ 了
 - 消息看起来是提问（以 `?` / `？` 结尾）
 - 消息包含请求类动词（帮、请、分析、总结、写…）
@@ -139,9 +151,11 @@ feishu-bridge/
 ### 日志位置
 
 ```
-~/.clawdbot/logs/feishu-bridge.out.log   # 正常输出
-~/.clawdbot/logs/feishu-bridge.err.log   # 错误日志
+<state-dir>/logs/feishu-bridge.out.log   # 正常输出
+<state-dir>/logs/feishu-bridge.err.log   # 错误日志
 ```
+
+如果你设置了 `OPENCLAW_STATE_DIR`，这里的 `<state-dir>` 就是那个目录；否则通常是 `~/.openclaw` 或旧的 `~/.clawdbot`。
 
 ### 停止服务
 
@@ -164,6 +178,12 @@ launchctl unload ~/Library/LaunchAgents/com.clawdbot.feishu-bridge.plist
 
 **Q: 能同时接 Telegram / 微信吗？**
 可以。Clawdbot 原生支持 Telegram 等渠道，飞书桥接只是多加一个入口，互不影响。
+
+**Q: 为什么 Gateway 报 `missing scope: operator.write`？**
+这是新版 Gateway 的鉴权收紧导致的。旧版 bridge 只发送 shared token 和 scope 声明，没有提供 device identity；新版 Gateway 会清掉这类 backend client 自报的 write scope。当前 bridge 已改成自动发送 `device` 签名并缓存 `deviceToken`。
+
+**Q: 升级后如果仍然报 `device token mismatch` 怎么办？**
+bridge 会自动清掉本地缓存并回退一次 shared-token 握手，正常情况下无需手工处理。如果你要强制重置，可以删除状态目录里的 `identity/feishu-bridge-device-auth.json` 后重启桥接服务。状态目录默认是 `~/.openclaw`；如果你还在使用旧目录，则可能是 `~/.clawdbot`。
 
 ---
 
